@@ -22,11 +22,9 @@ defmodule CarolinaCodesElixir.Register do
 
       url = String.trim_trailing(url, "/") <> "/internal/api-endpoints/register"
 
-      case Req.post(url,
-             json: body,
-             headers: [{"authorization", "Bearer #{token}"}],
-             receive_timeout: 5_000,
-             retry: false
+      case Req.post(
+             url,
+             [json: body, headers: [{"authorization", "Bearer #{token}"}]] ++ req_opts(url)
            ) do
         {:ok, %{status: status}} ->
           IO.puts(:stderr, "registered with elixir: #{status}")
@@ -38,6 +36,15 @@ defmodule CarolinaCodesElixir.Register do
   rescue
     err ->
       IO.puts(:stderr, "register: #{Exception.message(err)}")
+  end
+
+  # Fly 6PN (*.internal) is IPv6-only; Req/Mint default to A records and get nxdomain.
+  def req_opts(url) do
+    opts = [receive_timeout: 5_000, retry: false]
+
+    if String.contains?(to_string(url), ".internal:"),
+      do: Keyword.put(opts, :inet6, true),
+      else: opts
   end
 
   defp present?(nil), do: false

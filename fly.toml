@@ -10,6 +10,7 @@ primary_region = "iad"
   PORT = "8080"
   CAROLINA_URL = "http://carolina-codes.internal:8080"
   PUBLIC_BASE_URL = "https://carolina-codes-elixir.fly.dev"
+  RELEASE_DISTRIBUTION = "none"
 
 [http_service]
   internal_port = 8080

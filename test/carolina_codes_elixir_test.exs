@@ -34,6 +34,42 @@ defmodule CarolinaCodesElixirTest do
     refute src =~ "Catalog."
   end
 
+  test "register uses inet6 for Fly 6PN hosts" do
+    internal = "http://carolina-codes.internal:8080/internal/api-endpoints/register"
+    opts = CarolinaCodesElixir.Register.req_opts(internal)
+    assert opts[:inet6] == true
+    assert opts[:retry] == false
+
+    local =
+      CarolinaCodesElixir.Register.req_opts(
+        "http://127.0.0.1:4000/internal/api-endpoints/register"
+      )
+
+    refute local[:inet6]
+
+    src = File.read!(Path.expand("../lib/carolina_codes_elixir/register.ex", __DIR__))
+    assert src =~ ~s[String.contains?(to_string(url), ".internal:")]
+    assert src =~ "Keyword.put(opts, :inet6, true)"
+    assert src =~ "req_opts(url)"
+  end
+
+  test "production image is Debian with RELEASE_DISTRIBUTION=none" do
+    docker = File.read!(Path.expand("../Dockerfile", __DIR__))
+    assert docker =~ "debian"
+    assert docker =~ "RELEASE_DISTRIBUTION=none"
+    assert docker =~ "en_US.UTF-8"
+    refute docker =~ "alpine"
+    refute docker =~ "apk add"
+
+    fly = File.read!(Path.expand("../fly.toml", __DIR__))
+    assert fly =~ ~s(app = "carolina-codes-elixir")
+    assert fly =~ ~s(PORT = "8080")
+    assert fly =~ ~s(CAROLINA_URL = "http://carolina-codes.internal:8080")
+    assert fly =~ ~s(PUBLIC_BASE_URL = "https://carolina-codes-elixir.fly.dev")
+    assert fly =~ ~s(path = "/health")
+    assert fly =~ ~s(RELEASE_DISTRIBUTION = "none")
+  end
+
   test "/health is ok JSON and does not run SQL or connect" do
     sql = Db.sql_count()
     connects = Db.connect_count()
