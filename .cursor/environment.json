@@ -1,0 +1,14 @@
+{
+  "name": "carolina-codes-elixir",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": "."
+  },
+  "install": "mix local.hex --force && mix local.rebar --force && mix deps.get",
+  "ports": [
+    {
+      "name": "api",
+      "port": 4015
+    }
+  ]
+}
