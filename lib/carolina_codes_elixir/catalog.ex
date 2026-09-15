@@ -49,22 +49,20 @@ defmodule CarolinaCodesElixir.Catalog do
     speaker = load_speaker(slug)
     talks = talks_for(slug, year)
 
-    cond do
-      is_nil(speaker) or talks == [] ->
-        nil
+    if is_nil(speaker) or talks == [] do
+      nil
+    else
+      years = talk_years(slug)
 
-      true ->
-        years = talk_years(slug)
-
-        speaker
-        |> Map.merge(%{
-          "year" => year,
-          "years" => years,
-          "other_years" => Enum.reject(years, &(&1 == year)),
-          "talks" => talks,
-          "languages" => uniq_tags(talks, "languages"),
-          "topics" => uniq_tags(talks, "topics")
-        })
+      speaker
+      |> Map.merge(%{
+        "year" => year,
+        "years" => years,
+        "other_years" => Enum.reject(years, &(&1 == year)),
+        "talks" => talks,
+        "languages" => uniq_tags(talks, "languages"),
+        "topics" => uniq_tags(talks, "topics")
+      })
     end
   end
 

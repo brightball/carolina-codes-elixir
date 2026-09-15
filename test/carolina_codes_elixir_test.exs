@@ -1,29 +1,65 @@
 defmodule CarolinaCodesElixirTest do
-  use ExUnit.Case, async: false
-  import Plug.Test
+  use CarolinaCodesElixirWeb.ConnCase, async: false
 
   alias CarolinaCodesElixir.Catalog
   alias CarolinaCodesElixir.Db
-  alias CarolinaCodesElixir.Router
 
-  @opts Router.init([])
+  test "mix precommit and mise check include compiler, credo, sobelow, audit, and gitleaks" do
+    mix = File.read!(Path.expand("../mix.exs", __DIR__))
+    assert mix =~ "compile --warnings-as-errors"
+    assert mix =~ "format --check-formatted"
+    assert mix =~ "credo --strict"
+    assert mix =~ "sobelow --exit --threshold high --skip"
+    assert mix =~ "deps.audit"
+    assert mix =~ "preferred_envs: [precommit: :test]"
+    assert mix =~ "gitleaks detect --source ."
 
-  defp get(path) do
-    conn(:get, path)
-    |> Router.call(@opts)
+    mise = File.read!(Path.expand("../mise.toml", __DIR__))
+    assert mise =~ "gitleaks"
+    assert mise =~ "mix precommit"
+    assert mise =~ "gitleaks detect --source ."
   end
 
-  defp json(conn) do
-    Jason.decode!(conn.resp_body)
+  test "test env uses fake catalog so mix test does not need Postgres" do
+    assert Application.get_env(:carolina_codes_elixir, :query_fn) ==
+             {CarolinaCodesElixir.FakeCatalog, :query}
+
+    assert Application.get_env(:carolina_codes_elixir, :connect_fn) ==
+             {CarolinaCodesElixir.FakeCatalog, :connect}
+
+    src = File.read!(Path.expand("../config/test.exs", __DIR__))
+    assert src =~ "CarolinaCodesElixir.FakeCatalog"
+    refute src =~ "Postgrex.start_link"
+  end
+
+  test "HTTP is served through Phoenix Endpoint, not a Plug.Router Bandit child" do
+    refute File.exists?(Path.expand("../lib/carolina_codes_elixir/router.ex", __DIR__))
+    assert Code.ensure_loaded?(CarolinaCodesElixirWeb.Endpoint)
+    assert Code.ensure_loaded?(CarolinaCodesElixirWeb.Router)
+
+    src = File.read!(Path.expand("../lib/carolina_codes_elixir/application.ex", __DIR__))
+    refute src =~ "{Bandit,"
+    refute src =~ "plug: CarolinaCodesElixir.Router"
+    assert src =~ "CarolinaCodesElixirWeb.Endpoint"
+
+    adapter =
+      Application.get_env(:carolina_codes_elixir, CarolinaCodesElixirWeb.Endpoint)[:adapter]
+
+    assert adapter == Bandit.PhoenixAdapter
   end
 
   test "listen host is IPv6 dual-stack" do
     assert CarolinaCodesElixir.listen_host() == "::"
     assert tuple_size(CarolinaCodesElixir.listen_ip()) == 8
-    src = File.read!(Path.expand("../lib/carolina_codes_elixir/application.ex", __DIR__))
+
+    src = File.read!(Path.expand("../config/runtime.exs", __DIR__))
     assert src =~ "ipv6_v6only: false"
     assert src =~ "CarolinaCodesElixir.listen_ip()"
     refute src =~ "ip: {0, 0, 0, 0}"
+
+    http = Application.get_env(:carolina_codes_elixir, CarolinaCodesElixirWeb.Endpoint)[:http]
+    assert http[:ip] == CarolinaCodesElixir.listen_ip()
+    assert get_in(http, [:thousand_island_options, :transport_options, :ipv6_v6only]) == false
   end
 
   test "register-once does not open Postgres or run catalog SQL" do
@@ -58,6 +94,8 @@ defmodule CarolinaCodesElixirTest do
     assert docker =~ "debian"
     assert docker =~ "RELEASE_DISTRIBUTION=none"
     assert docker =~ "en_US.UTF-8"
+    assert docker =~ "PHX_SERVER"
+    assert docker =~ "/app/bin/server"
     refute docker =~ "alpine"
     refute docker =~ "apk add"
 
@@ -68,34 +106,38 @@ defmodule CarolinaCodesElixirTest do
     assert fly =~ ~s(PUBLIC_BASE_URL = "https://carolina-codes-elixir.fly.dev")
     assert fly =~ ~s(path = "/health")
     assert fly =~ ~s(RELEASE_DISTRIBUTION = "none")
+    assert fly =~ ~s(PHX_SERVER = "true")
   end
 
-  test "/health is ok JSON and does not run SQL or connect" do
+  test "/health is ok JSON and does not run SQL or connect", %{conn: conn} do
     sql = Db.sql_count()
     connects = Db.connect_count()
-    conn = get("/health")
+    conn = get(conn, ~p"/health")
     assert conn.status == 200
-    body = json(conn)
+    body = json_response(conn, 200)
     assert body["ok"] == true or body["status"] == "ok"
     assert Db.sql_count() == sql
     assert Db.connect_count() == connects
   end
 
-  test "GET / returns identity" do
-    conn = get("/")
+  test "GET / returns Phoenix identity and polyglot framework header", %{conn: conn} do
+    conn = get(conn, ~p"/")
     assert conn.status == 200
-    body = json(conn)
+    body = json_response(conn, 200)
     assert body["language"] == "Elixir"
-    assert body["framework"] == "Bandit"
+    assert body["framework"] == "Phoenix"
+    refute body["framework"] == "Bandit"
     assert is_list(body["endpoints"])
+    assert get_resp_header(conn, "x-polyglot-language") == ["Elixir"]
+    assert get_resp_header(conn, "x-polyglot-framework") == ["Phoenix"]
   end
 
-  test "year speaker listing SQL is bounded, years DESC, pool reused" do
+  test "year speaker listing SQL is bounded, years DESC, pool reused", %{conn: conn} do
     boot = Db.connect_count()
     Db.set_sql_count(0)
 
-    conn = get("/v1/speakers?year=2026")
-    body = json(conn)
+    conn = get(conn, ~p"/v1/speakers?year=2026")
+    body = json_response(conn, 200)
     speakers = body["data"] || []
     sql = Db.sql_count()
     n = length(speakers)
@@ -118,56 +160,57 @@ defmodule CarolinaCodesElixirTest do
     assert_years_desc(rows, "list_speakers")
 
     Db.set_sql_count(0)
-    conn2 = get("/v1/speakers?year=2026")
+    conn2 = get(build_conn(), ~p"/v1/speakers?year=2026")
     assert conn2.status == 200
     assert Db.connect_count() == boot
   end
 
-  test "unknown speaker slug is 404" do
-    conn = get("/v1/speakers/not-a-real-slug-zzz")
+  test "unknown speaker slug is 404", %{conn: conn} do
+    conn = get(conn, ~p"/v1/speakers/not-a-real-slug-zzz")
     assert conn.status == 404
-    assert json(conn)["error"] == "not_found"
+    assert json_response(conn, 404)["error"] == "not_found"
   end
 
-  test "year speaker detail includes talks languages" do
-    conn = get("/v1/speakers/2026/diana-pham")
+  test "year speaker detail includes talks languages", %{conn: conn} do
+    conn = get(conn, ~p"/v1/speakers/2026/diana-pham")
     assert conn.status == 200
-    data = json(conn)["data"]
+    data = json_response(conn, 200)["data"]
     assert data["slug"] == "diana-pham"
     assert is_list(data["talks"])
     assert is_list(data["languages"]) or Enum.any?(data["talks"], &is_list(&1["languages"]))
   end
 
-  test "year sponsors include tier" do
-    conn = get("/v1/sponsors?year=2026")
+  test "year sponsors include tier", %{conn: conn} do
+    conn = get(conn, ~p"/v1/sponsors?year=2026")
     assert conn.status == 200
-    data = json(conn)["data"]
-    assert length(data) >= 1
+    data = json_response(conn, 200)["data"]
+    assert match?([_ | _], data)
     assert Enum.any?(data, &is_binary(&1["tier"]))
   end
 
-  test "unknown sponsor slug is 404" do
-    conn = get("/v1/sponsors/not-a-real-sponsor-zzz")
+  test "unknown sponsor slug is 404", %{conn: conn} do
+    conn = get(conn, ~p"/v1/sponsors/not-a-real-sponsor-zzz")
     assert conn.status == 404
+    assert json_response(conn, 404)["error"] == "not_found"
+  end
+
+  test "GET /v1/years returns data list", %{conn: conn} do
+    conn = get(conn, ~p"/v1/years")
+    assert conn.status == 200
+    data = json_response(conn, 200)["data"]
+    assert is_list(data)
+    assert Enum.any?(data, &(&1["year"] == 2026))
   end
 
   defp assert_years_desc(speakers, label) do
-    found_multi =
-      Enum.reduce(speakers, false, fn sp, acc ->
-        years = sp["years"] || []
+    multi_year = Enum.filter(speakers, fn sp -> match?([_, _ | _], sp["years"] || []) end)
+    assert multi_year != [], "#{label} expected a speaker with >=2 years"
 
-        if length(years) < 2 do
-          acc
-        else
-          Enum.reduce(Enum.chunk_every(years, 2, 1, :discard), true, fn [a, b], ok ->
-            assert a >= b, "#{label} years not DESC for #{sp["slug"]}: #{inspect(years)}"
-            ok
-          end)
+    Enum.each(multi_year, fn sp ->
+      years = sp["years"]
 
-          true
-        end
-      end)
-
-    assert found_multi, "#{label} expected a speaker with >=2 years"
+      assert years == Enum.sort(years, :desc),
+             "#{label} years not DESC for #{sp["slug"]}: #{inspect(years)}"
+    end)
   end
 end

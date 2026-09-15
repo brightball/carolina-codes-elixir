@@ -4,7 +4,7 @@ defmodule CarolinaCodesElixir do
   def language, do: "Elixir"
   def language_version, do: System.version()
   def api_version, do: "0.2.0"
-  def framework, do: "Bandit"
+  def framework, do: "Phoenix"
   def created_year, do: 2026
   def schema_version, do: 1
 

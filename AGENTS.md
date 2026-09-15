@@ -1,6 +1,6 @@
 # carolina-codes-elixir
 
-Read-only v1 polyglot API served by Phoenix (Bandit adapter). See README.md for install, run, and test commands. `mix precommit` (and `mise run check`) runs compile-warnings-as-errors, format, credo --strict, sobelow, deps.audit, and tests. `mise run secrets` runs gitleaks.
+Read-only v1 polyglot API served by Phoenix (Bandit adapter). See README.md for install, run, and test commands. `mix precommit` (and `mise run check`) runs compile-warnings-as-errors, format, credo --strict, sobelow, deps.audit, gitleaks detect, and tests. `mise run secrets` runs gitleaks.
 
 ## Cursor Cloud specific instructions
 

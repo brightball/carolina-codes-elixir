@@ -18,6 +18,7 @@ COPY mix.exs mix.lock ./
 COPY config config
 RUN mix deps.get --only prod && mix deps.compile
 COPY lib lib
+COPY rel rel
 RUN mix compile && mix release
 
 FROM ${RUNNER_IMAGE}
@@ -37,5 +38,6 @@ ENV PORT=8080
 ENV MIX_ENV=prod
 ENV RELEASE_DISTRIBUTION=none
 ENV ELIXIR_ERL_OPTIONS="+fnu"
+ENV PHX_SERVER=true
 EXPOSE 8080
-CMD ["/app/bin/carolina_codes_elixir", "start"]
+CMD ["/app/bin/server"]

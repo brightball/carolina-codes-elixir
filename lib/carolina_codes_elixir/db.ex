@@ -13,12 +13,12 @@ defmodule CarolinaCodesElixir.Db do
   def start_link do
     inc_connect()
 
-    case connect_fn() do
-      fun when is_function(fun, 0) ->
-        fun.()
-
-      _ ->
+    case call_hook(connect_fn(), []) do
+      :default ->
         Postgrex.start_link(Keyword.put(conn_opts(), :name, @pool))
+
+      result ->
+        result
     end
   end
 
@@ -27,13 +27,13 @@ defmodule CarolinaCodesElixir.Db do
   def query(sql, params \\ []) do
     inc_sql()
 
-    case query_fn() do
-      fun when is_function(fun, 2) ->
-        fun.(sql, params)
-
-      _ ->
+    case call_hook(query_fn(), [sql, params]) do
+      :default ->
         result = Postgrex.query!(@pool, sql, params)
         rows_to_maps(result)
+
+      result ->
+        result
     end
   end
 
@@ -120,4 +120,12 @@ defmodule CarolinaCodesElixir.Db do
 
   defp query_fn, do: Application.get_env(:carolina_codes_elixir, :query_fn)
   defp connect_fn, do: Application.get_env(:carolina_codes_elixir, :connect_fn)
+
+  defp call_hook(fun, args) when is_function(fun) and is_list(args), do: apply(fun, args)
+
+  defp call_hook({mod, fun}, args) when is_atom(mod) and is_atom(fun) do
+    apply(mod, fun, args)
+  end
+
+  defp call_hook(_other, _args), do: :default
 end

@@ -1,0 +1,205 @@
+# One Gitea Actions job per mix precommit alias entry in mix.exs.
+# Not a single combined `mix precommit` job.
+#
+# act_runner starts a new container per job, so jobs cannot share a live
+# image. Host bind-mounts are also blocked (valid_volumes is empty). Prep
+# checks out GITHUB_SHA, mix deps.get, and mix compile once on Bookworm,
+# then uploads a workspace tarball. Later Bookworm mix checks restore that
+# artifact. hexpm images have no Node, so those jobs apt-get nodejs only
+# to run the artifact action — they do not clone or mix deps.get.
+#
+# Gitleaks is its own job on the gitleaks image (not a Mix task) and
+# clones GITHUB_SHA itself so it does not wait on prep.
+#
+# Empty hexpm/gitleaks image: clone GITHUB_SHA with the job token over
+# HTTPS. Gitea git HTTP returns 401 without the token. Do not git init
+# or set init.defaultBranch here.
+name: precommit
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: precommit-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  MIX_ENV: test
+  MIX_OS_DEPS_COMPILE_PARTITION_COUNT: "1"
+  GITHUB_TOKEN: ${{ github.token }}
+
+jobs:
+  prep:
+    runs-on: ubuntu-latest
+    container:
+      image: docker.io/hexpm/elixir:1.20.2-erlang-29.0.3-debian-bookworm-20260713-slim
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - run: apt-get update -qq && apt-get install -y --no-install-recommends git build-essential ca-certificates nodejs
+      - run: |
+          token="${GITHUB_TOKEN:-${GITEA_TOKEN:-}}"
+          if [ -z "$token" ]; then echo "missing job token for git fetch" >&2; exit 1; fi
+          host="${GITHUB_SERVER_URL#https://}"
+          host="${host#http://}"
+          git clone --depth 1 --no-checkout "https://x-access-token:${token}@${host}/${GITHUB_REPOSITORY}" .
+          git fetch --depth 1 origin "${GITHUB_SHA}"
+          git checkout --force FETCH_HEAD
+      - run: mix local.hex --force && mix local.rebar --force
+      - run: mix deps.get
+      - run: mix compile
+      - run: |
+          tar -czf /tmp/prep-workspace.tar.gz \
+            --exclude=./.git \
+            .
+          mv /tmp/prep-workspace.tar.gz prep-workspace.tar.gz
+      - uses: actions/upload-artifact@v3
+        with:
+          name: prep-workspace
+          path: prep-workspace.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+
+  compile:
+    needs: prep
+    runs-on: ubuntu-latest
+    container:
+      image: docker.io/hexpm/elixir:1.20.2-erlang-29.0.3-debian-bookworm-20260713-slim
+    steps:
+      - run: apt-get update -qq && apt-get install -y --no-install-recommends ca-certificates git nodejs
+      - uses: actions/download-artifact@v3
+        with:
+          name: prep-workspace
+      - run: |
+          archive="$(find . -name prep-workspace.tar.gz -print | head -1)"
+          test -n "$archive"
+          tar -xzf "$archive"
+          mix local.hex --force
+          mix local.rebar --force
+      - run: mix compile --force --warnings-as-errors
+
+  deps-unlock:
+    needs: prep
+    runs-on: ubuntu-latest
+    container:
+      image: docker.io/hexpm/elixir:1.20.2-erlang-29.0.3-debian-bookworm-20260713-slim
+    steps:
+      - run: apt-get update -qq && apt-get install -y --no-install-recommends ca-certificates git nodejs
+      - uses: actions/download-artifact@v3
+        with:
+          name: prep-workspace
+      - run: |
+          archive="$(find . -name prep-workspace.tar.gz -print | head -1)"
+          test -n "$archive"
+          tar -xzf "$archive"
+          mix local.hex --force
+          mix local.rebar --force
+      - run: mix deps.unlock --check-unused
+
+  deps-audit:
+    needs: prep
+    runs-on: ubuntu-latest
+    container:
+      image: docker.io/hexpm/elixir:1.20.2-erlang-29.0.3-debian-bookworm-20260713-slim
+    steps:
+      - run: apt-get update -qq && apt-get install -y --no-install-recommends ca-certificates git nodejs
+      - uses: actions/download-artifact@v3
+        with:
+          name: prep-workspace
+      - run: |
+          archive="$(find . -name prep-workspace.tar.gz -print | head -1)"
+          test -n "$archive"
+          tar -xzf "$archive"
+          mix local.hex --force
+          mix local.rebar --force
+      - run: mix deps.audit
+
+  format:
+    needs: prep
+    runs-on: ubuntu-latest
+    container:
+      image: docker.io/hexpm/elixir:1.20.2-erlang-29.0.3-debian-bookworm-20260713-slim
+    steps:
+      - run: apt-get update -qq && apt-get install -y --no-install-recommends ca-certificates git nodejs
+      - uses: actions/download-artifact@v3
+        with:
+          name: prep-workspace
+      - run: |
+          archive="$(find . -name prep-workspace.tar.gz -print | head -1)"
+          test -n "$archive"
+          tar -xzf "$archive"
+          mix local.hex --force
+          mix local.rebar --force
+      - run: mix format --check-formatted
+
+  credo:
+    needs: prep
+    runs-on: ubuntu-latest
+    container:
+      image: docker.io/hexpm/elixir:1.20.2-erlang-29.0.3-debian-bookworm-20260713-slim
+    steps:
+      - run: apt-get update -qq && apt-get install -y --no-install-recommends ca-certificates git nodejs
+      - uses: actions/download-artifact@v3
+        with:
+          name: prep-workspace
+      - run: |
+          archive="$(find . -name prep-workspace.tar.gz -print | head -1)"
+          test -n "$archive"
+          tar -xzf "$archive"
+          mix local.hex --force
+          mix local.rebar --force
+      - run: mix credo --strict
+
+  sobelow:
+    needs: prep
+    runs-on: ubuntu-latest
+    container:
+      image: docker.io/hexpm/elixir:1.20.2-erlang-29.0.3-debian-bookworm-20260713-slim
+    steps:
+      - run: apt-get update -qq && apt-get install -y --no-install-recommends ca-certificates git nodejs
+      - uses: actions/download-artifact@v3
+        with:
+          name: prep-workspace
+      - run: |
+          archive="$(find . -name prep-workspace.tar.gz -print | head -1)"
+          test -n "$archive"
+          tar -xzf "$archive"
+          mix local.hex --force
+          mix local.rebar --force
+      - run: mix sobelow --exit --threshold high --skip
+
+  test:
+    needs: prep
+    runs-on: ubuntu-latest
+    container:
+      image: docker.io/hexpm/elixir:1.20.2-erlang-29.0.3-debian-bookworm-20260713-slim
+    steps:
+      - run: apt-get update -qq && apt-get install -y --no-install-recommends ca-certificates git nodejs
+      - uses: actions/download-artifact@v3
+        with:
+          name: prep-workspace
+      - run: |
+          archive="$(find . -name prep-workspace.tar.gz -print | head -1)"
+          test -n "$archive"
+          tar -xzf "$archive"
+          mix local.hex --force
+          mix local.rebar --force
+      - run: mix test
+
+  gitleaks:
+    runs-on: ubuntu-latest
+    container:
+      image: docker.io/zricethezav/gitleaks:v8.28.0
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - run: |
+          token="${GITHUB_TOKEN:-${GITEA_TOKEN:-}}"
+          if [ -z "$token" ]; then echo "missing job token for git fetch" >&2; exit 1; fi
+          host="${GITHUB_SERVER_URL#https://}"
+          host="${host#http://}"
+          git clone --depth 1 --no-checkout "https://x-access-token:${token}@${host}/${GITHUB_REPOSITORY}" .
+          git fetch --depth 1 origin "${GITHUB_SHA}"
+          git checkout --force FETCH_HEAD
+      - run: gitleaks detect --source . --verbose

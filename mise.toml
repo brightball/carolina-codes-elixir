@@ -1,3 +1,12 @@
 [tools]
 elixir = "1.20.4"
 erlang = "29"
+gitleaks = "latest"
+
+[tasks.check]
+description = "Run mix precommit (compile, format, credo, sobelow, deps.audit, gitleaks, tests)"
+run = "mix precommit"
+
+[tasks.secrets]
+description = "Scan for secrets with gitleaks"
+run = "gitleaks detect --source . --verbose"
