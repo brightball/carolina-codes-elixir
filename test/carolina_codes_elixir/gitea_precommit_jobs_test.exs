@@ -231,6 +231,19 @@ defmodule CarolinaCodesElixir.GiteaPrecommitJobsTest do
     refute String.contains?(gitleaks, "hexpm/elixir")
   end
 
+  test "deps-audit reads the advisory snapshot packed by prep" do
+    jobs = Map.new(workflow_jobs(File.read!(@workflow)))
+    prep = Map.fetch!(jobs, "prep")
+    audit = Map.fetch!(jobs, "deps-audit")
+
+    assert String.contains?(prep, "https://github.com/mirego/elixir-security-advisories.git")
+    assert String.contains?(prep, "security-advisories")
+    assert String.contains?(audit, "/usr/local/bin/git")
+    assert String.contains?(audit, "$PWD/security-advisories")
+    refute Regex.match?(~r/apt-get install[^\n]*\bgit\b/, audit)
+    assert Regex.match?(~r/^\s+- run: mix deps\.audit\s*$/m, audit)
+  end
+
   test "outdated precommit runs are cancelled" do
     workflow = File.read!(@workflow)
     assert workflow =~ ~r/^concurrency:\n  group: precommit-/m

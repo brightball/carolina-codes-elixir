@@ -49,6 +49,7 @@ jobs:
       - run: mix local.hex --force && mix local.rebar --force
       - run: mix deps.get
       - run: mix compile
+      - run: git clone --depth 1 --quiet https://github.com/mirego/elixir-security-advisories.git security-advisories
       - run: |
           tar -czf /tmp/prep-workspace.tar.gz \
             --exclude=./.git \
@@ -113,6 +114,22 @@ jobs:
           tar -xzf "$archive"
           mix local.hex --force
           mix local.rebar --force
+      - run: |
+          cat > /usr/local/bin/git << 'EOF'
+          #!/bin/sh
+          # mix deps.audit clones the advisory repo. Prep already packed it.
+          cmd="$1"
+          shift
+          if [ "$cmd" = "clone" ]; then
+            dest=""
+            for arg in "$@"; do dest="$arg"; done
+            rm -rf "$dest"
+            mkdir -p "$(dirname "$dest")"
+            cp -a "$PWD/security-advisories" "$dest"
+          fi
+          exit 0
+          EOF
+          chmod +x /usr/local/bin/git
       - run: mix deps.audit
 
   format:
