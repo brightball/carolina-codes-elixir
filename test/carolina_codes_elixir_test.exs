@@ -107,6 +107,57 @@ defmodule CarolinaCodesElixirTest do
     assert fly =~ ~s(path = "/health")
     assert fly =~ ~s(RELEASE_DISTRIBUTION = "none")
     assert fly =~ ~s(PHX_SERVER = "true")
+    assert fly =~ ~s(auto_stop_machines = "suspend")
+    assert fly =~ "auto_start_machines = true"
+    refute fly =~ ~s(auto_stop_machines = "stop")
+  end
+
+  test "release vm args disable scheduler busy-wait for bin/server" do
+    vm = File.read!(Path.expand("../rel/vm.args.eex", __DIR__))
+    assert vm =~ "+sbwt none"
+    assert vm =~ "+sbwtdcpu none"
+    assert vm =~ "+sbwtdio none"
+
+    server = File.read!(Path.expand("../rel/overlays/bin/server", __DIR__))
+    assert server =~ "exec ./carolina_codes_elixir start"
+    refute server =~ "ELIXIR_ERL_OPTIONS"
+  end
+
+  test "endpoint listens before the pool and the pool is not eight connections" do
+    ids =
+      Enum.map(CarolinaCodesElixir.Application.children(), fn
+        {mod, _opts} -> mod
+        mod -> mod
+      end)
+
+    endpoint = Enum.find_index(ids, &(&1 == CarolinaCodesElixirWeb.Endpoint))
+    db = Enum.find_index(ids, &(&1 == CarolinaCodesElixir.Db))
+    assert is_integer(endpoint) and is_integer(db)
+    assert endpoint < db
+
+    opts = Db.parse_url("postgres://postgres:postgres@127.0.0.1:1/carolina_dev")
+    assert opts[:pool_size] >= 1
+    assert opts[:pool_size] < 8
+    assert Db.conn_opts()[:pool_size] == opts[:pool_size]
+
+    http = Application.get_env(:carolina_codes_elixir, CarolinaCodesElixirWeb.Endpoint)[:http]
+    acceptors = get_in(http, [:thousand_island_options, :num_acceptors])
+    assert is_integer(acceptors) and acceptors >= 1 and acceptors < 100
+  end
+
+  test "credo strict includes lib and test and excludes deps and _build" do
+    {config, _} = Code.eval_file(Path.expand("../.credo.exs", __DIR__))
+    files = hd(config[:configs])[:files]
+    assert "lib/" in files[:included]
+    assert "test/" in files[:included]
+
+    refute Enum.any?(files[:included], fn path ->
+             String.contains?(path, "deps") or String.contains?(path, "_build")
+           end)
+
+    excluded = Enum.map(files[:excluded], &inspect/1)
+    assert Enum.any?(excluded, &String.contains?(&1, "_build"))
+    assert Enum.any?(excluded, &String.contains?(&1, "deps"))
   end
 
   test "/health is ok JSON and does not run SQL or connect", %{conn: conn} do
@@ -200,6 +251,101 @@ defmodule CarolinaCodesElixirTest do
     data = json_response(conn, 200)["data"]
     assert is_list(data)
     assert Enum.any?(data, &(&1["year"] == 2026))
+  end
+
+  test "every endpoints/0 route succeeds through the Phoenix router" do
+    for spec <- CarolinaCodesElixir.endpoints() do
+      for path <- success_paths(spec) do
+        conn = get(build_conn(), path)
+        body = json_response(conn, 200)
+
+        cond do
+          spec["path"] == "/health" ->
+            assert body["ok"] == true
+
+          spec["path"] == "/" ->
+            assert body["language"] == "Elixir"
+            assert body["framework"] == "Phoenix"
+
+          true ->
+            assert is_list(body["data"]) or is_map(body["data"])
+        end
+      end
+    end
+  end
+
+  test "catalog queries increment sql counters without persistent_term writes" do
+    Db.set_sql_count(0)
+    connects = Db.connect_count()
+
+    {speakers, puts} = traced_puts(fn -> Catalog.list_speakers(2026) end)
+    sql = Db.sql_count()
+
+    assert length(speakers) >= 3
+    assert sql > 0
+    assert sql <= 4
+    assert sql < 2 * length(speakers)
+    assert Db.connect_count() == connects
+    assert puts == []
+    assert_years_desc(speakers, "traced year list")
+
+    conn = get(build_conn(), "/v1/speakers?year=2026")
+    body = json_response(conn, 200)
+    assert length(body["data"]) == length(speakers)
+    assert Db.connect_count() == connects
+  end
+
+  defp success_paths(%{"path" => "/v1/speakers"}),
+    do: ["/v1/speakers", "/v1/speakers?year=2026"]
+
+  defp success_paths(%{"path" => "/v1/sponsors"}),
+    do: ["/v1/sponsors", "/v1/sponsors?year=2026"]
+
+  defp success_paths(%{"path" => "/v1/speakers/:slug"}), do: ["/v1/speakers/diana-pham"]
+
+  defp success_paths(%{"path" => "/v1/speakers/:year/:slug"}),
+    do: ["/v1/speakers/2026/diana-pham"]
+
+  defp success_paths(%{"path" => "/v1/sponsors/:slug"}), do: ["/v1/sponsors/flywheel"]
+
+  defp success_paths(%{"path" => "/v1/sponsors/:year/:slug"}),
+    do: ["/v1/sponsors/2026/flywheel"]
+
+  defp success_paths(%{"path" => path}), do: [path]
+
+  defp traced_puts(fun) do
+    parent = self()
+
+    pid =
+      spawn(fn ->
+        receive do
+          :go -> send(parent, {self(), :result, fun.()})
+        end
+      end)
+
+    :erlang.trace_pattern({:persistent_term, :put, 2}, true, [:local])
+    :erlang.trace(pid, true, [:call])
+
+    try do
+      send(pid, :go)
+
+      receive do
+        {^pid, :result, result} -> {result, collect_puts([])}
+      after
+        5_000 -> flunk("traced catalog call timed out")
+      end
+    after
+      if Process.alive?(pid), do: :erlang.trace(pid, false, [:call])
+      :erlang.trace_pattern({:persistent_term, :put, 2}, false, [:local])
+    end
+  end
+
+  defp collect_puts(acc) do
+    receive do
+      {:trace, _, :call, {:persistent_term, :put, args}} -> collect_puts([args | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
   end
 
   defp assert_years_desc(speakers, label) do

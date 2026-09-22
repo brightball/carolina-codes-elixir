@@ -33,7 +33,7 @@ jobs:
   prep:
     runs-on: ubuntu-latest
     container:
-      image: docker.io/hexpm/elixir:1.20.2-erlang-29.0.3-debian-bookworm-20260713-slim
+      image: docker.io/hexpm/elixir:1.20.4-erlang-29.0.6-debian-bookworm-20260918-slim
       env:
         GITHUB_TOKEN: ${{ github.token }}
     steps:
@@ -65,9 +65,9 @@ jobs:
     needs: prep
     runs-on: ubuntu-latest
     container:
-      image: docker.io/hexpm/elixir:1.20.2-erlang-29.0.3-debian-bookworm-20260713-slim
+      image: docker.io/hexpm/elixir:1.20.4-erlang-29.0.6-debian-bookworm-20260918-slim
     steps:
-      - run: apt-get update -qq && apt-get install -y --no-install-recommends ca-certificates git nodejs
+      - run: apt-get update -qq && apt-get install -y --no-install-recommends ca-certificates nodejs
       - uses: actions/download-artifact@v3
         with:
           name: prep-workspace
@@ -83,9 +83,9 @@ jobs:
     needs: prep
     runs-on: ubuntu-latest
     container:
-      image: docker.io/hexpm/elixir:1.20.2-erlang-29.0.3-debian-bookworm-20260713-slim
+      image: docker.io/hexpm/elixir:1.20.4-erlang-29.0.6-debian-bookworm-20260918-slim
     steps:
-      - run: apt-get update -qq && apt-get install -y --no-install-recommends ca-certificates git nodejs
+      - run: apt-get update -qq && apt-get install -y --no-install-recommends ca-certificates nodejs
       - uses: actions/download-artifact@v3
         with:
           name: prep-workspace
@@ -101,9 +101,9 @@ jobs:
     needs: prep
     runs-on: ubuntu-latest
     container:
-      image: docker.io/hexpm/elixir:1.20.2-erlang-29.0.3-debian-bookworm-20260713-slim
+      image: docker.io/hexpm/elixir:1.20.4-erlang-29.0.6-debian-bookworm-20260918-slim
     steps:
-      - run: apt-get update -qq && apt-get install -y --no-install-recommends ca-certificates git nodejs
+      - run: apt-get update -qq && apt-get install -y --no-install-recommends ca-certificates nodejs
       - uses: actions/download-artifact@v3
         with:
           name: prep-workspace
@@ -119,9 +119,9 @@ jobs:
     needs: prep
     runs-on: ubuntu-latest
     container:
-      image: docker.io/hexpm/elixir:1.20.2-erlang-29.0.3-debian-bookworm-20260713-slim
+      image: docker.io/hexpm/elixir:1.20.4-erlang-29.0.6-debian-bookworm-20260918-slim
     steps:
-      - run: apt-get update -qq && apt-get install -y --no-install-recommends ca-certificates git nodejs
+      - run: apt-get update -qq && apt-get install -y --no-install-recommends ca-certificates nodejs
       - uses: actions/download-artifact@v3
         with:
           name: prep-workspace
@@ -137,9 +137,9 @@ jobs:
     needs: prep
     runs-on: ubuntu-latest
     container:
-      image: docker.io/hexpm/elixir:1.20.2-erlang-29.0.3-debian-bookworm-20260713-slim
+      image: docker.io/hexpm/elixir:1.20.4-erlang-29.0.6-debian-bookworm-20260918-slim
     steps:
-      - run: apt-get update -qq && apt-get install -y --no-install-recommends ca-certificates git nodejs
+      - run: apt-get update -qq && apt-get install -y --no-install-recommends ca-certificates nodejs
       - uses: actions/download-artifact@v3
         with:
           name: prep-workspace
@@ -155,9 +155,9 @@ jobs:
     needs: prep
     runs-on: ubuntu-latest
     container:
-      image: docker.io/hexpm/elixir:1.20.2-erlang-29.0.3-debian-bookworm-20260713-slim
+      image: docker.io/hexpm/elixir:1.20.4-erlang-29.0.6-debian-bookworm-20260918-slim
     steps:
-      - run: apt-get update -qq && apt-get install -y --no-install-recommends ca-certificates git nodejs
+      - run: apt-get update -qq && apt-get install -y --no-install-recommends ca-certificates nodejs
       - uses: actions/download-artifact@v3
         with:
           name: prep-workspace
@@ -173,9 +173,9 @@ jobs:
     needs: prep
     runs-on: ubuntu-latest
     container:
-      image: docker.io/hexpm/elixir:1.20.2-erlang-29.0.3-debian-bookworm-20260713-slim
+      image: docker.io/hexpm/elixir:1.20.4-erlang-29.0.6-debian-bookworm-20260918-slim
     steps:
-      - run: apt-get update -qq && apt-get install -y --no-install-recommends ca-certificates git nodejs
+      - run: apt-get update -qq && apt-get install -y --no-install-recommends ca-certificates nodejs
       - uses: actions/download-artifact@v3
         with:
           name: prep-workspace

@@ -6,6 +6,7 @@ defmodule CarolinaCodesElixir.GiteaPrecommitJobsTest do
   @mise Path.expand("../../mise.toml", __DIR__)
   @workflow Path.expand("../../.gitea/workflows/precommit.yml", __DIR__)
 
+  @image "docker.io/hexpm/elixir:1.20.4-erlang-29.0.6-debian-bookworm-20260918-slim"
   @clone_cmd ~s[git clone --depth 1 --no-checkout "https://x-access-token:${token}@${host}/${GITHUB_REPOSITORY}" .]
   @restore_extract "mix local.hex --force"
   @cold_apt "apt-get update -qq && apt-get install -y --no-install-recommends git build-essential ca-certificates"
@@ -126,11 +127,23 @@ defmodule CarolinaCodesElixir.GiteaPrecommitJobsTest do
       refute String.contains?(body, "build-essential"),
              "#{name} must not install a compiler toolchain"
 
+      refute Regex.match?(~r/apt-get install[^\n]*\bgit\b/, body),
+             "#{name} must not install git; restore the packed workspace"
+
       refute String.contains?(body, @clone_cmd),
              "#{name} must not clone; restore the prep workspace"
 
       refute String.contains?(body, "mix deps.get"),
              "#{name} must not mix deps.get; restore deps from prep"
+
+      assert job_needs(body) == ["prep"],
+             "#{name} must wait only on prep, got #{inspect(job_needs(body))}"
+    end
+
+    mix_names = Enum.map(restore_jobs, &elem(&1, 0))
+
+    for {name, body} <- restore_jobs, other <- mix_names, other != name do
+      refute other in job_needs(body), "#{name} must not needs: #{other}"
     end
   end
 
@@ -194,6 +207,30 @@ defmodule CarolinaCodesElixir.GiteaPrecommitJobsTest do
     refute String.contains?(gitleaks, "actions/download-artifact")
   end
 
+  test "Gitea mix jobs use Elixir 1.20.4 and OTP 29.0.6 on Debian Bookworm" do
+    workflow = File.read!(@workflow)
+    docker = File.read!(Path.expand("../../Dockerfile", __DIR__))
+
+    assert docker =~ "ARG ELIXIR_VERSION=1.20.4"
+    assert docker =~ "ARG OTP_VERSION=29.0.6"
+    assert docker =~ "debian"
+    refute docker =~ "alpine"
+
+    jobs = workflow_jobs(workflow)
+
+    for {name, body} <- jobs, name != "gitleaks" do
+      assert String.contains?(body, @image),
+             "#{name} must use the published Bookworm image #{@image}"
+
+      refute String.contains?(body, "alpine")
+      refute String.contains?(body, "1.20.2")
+      refute String.contains?(body, "29.0.3")
+    end
+
+    gitleaks = Map.fetch!(Map.new(jobs), "gitleaks")
+    refute String.contains?(gitleaks, "hexpm/elixir")
+  end
+
   test "outdated precommit runs are cancelled" do
     workflow = File.read!(@workflow)
     assert workflow =~ ~r/^concurrency:\n  group: precommit-/m
@@ -221,6 +258,22 @@ defmodule CarolinaCodesElixir.GiteaPrecommitJobsTest do
 
   defp job_runs_check?(body, mix_cmd) do
     Regex.match?(~r/^\s+- run: mix #{Regex.escape(mix_cmd)}\s*$/m, body)
+  end
+
+  defp job_needs(body) do
+    case Regex.run(~r/^\s+needs:\s*\[([^\]]*)\]/m, body) do
+      [_, inner] ->
+        inner
+        |> String.split(",")
+        |> Enum.map(&String.trim/1)
+        |> Enum.reject(&(&1 == ""))
+
+      nil ->
+        case Regex.run(~r/^\s+needs:\s*([A-Za-z0-9_-]+)/m, body) do
+          [_, name] -> [name]
+          nil -> []
+        end
+    end
   end
 
   defp workflow_jobs(yaml) do

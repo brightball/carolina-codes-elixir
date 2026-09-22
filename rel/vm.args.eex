@@ -1,0 +1,5 @@
+## Scheduler busy-wait burns a shared-cpu Fly machine during boot.
+## Loaded via --vm-args on `bin/server` -> `carolina_codes_elixir start` and on `eval`.
++sbwt none
++sbwtdcpu none
++sbwtdio none

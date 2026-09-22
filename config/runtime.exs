@@ -20,6 +20,8 @@ config :carolina_codes_elixir, CarolinaCodesElixirWeb.Endpoint,
     ip: CarolinaCodesElixir.listen_ip(),
     port: port,
     thousand_island_options: [
+      # Default 100 acceptors is wasted work on a 1 shared CPU.
+      num_acceptors: 20,
       transport_options: [ipv6_v6only: false]
     ]
   ]

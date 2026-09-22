@@ -159,8 +159,10 @@ defmodule CarolinaCodesElixir.Catalog do
     |> Enum.reduce(%{}, fn row, acc ->
       slug = row["speaker_slug"]
       year = as_int(row["year"])
-      Map.update(acc, slug, [year], &(&1 ++ [year]))
+      # Rows arrive year DESC. Cons flips that; one reverse restores it.
+      Map.update(acc, slug, [year], &[year | &1])
     end)
+    |> Map.new(fn {slug, years} -> {slug, Enum.reverse(years)} end)
   end
 
   defp talks_for(slug, nil) do

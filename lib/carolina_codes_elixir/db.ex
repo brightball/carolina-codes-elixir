@@ -2,6 +2,23 @@ defmodule CarolinaCodesElixir.Db do
   @moduledoc false
 
   @pool __MODULE__
+  @counter_key {__MODULE__, :counters}
+  @sql_idx 1
+  @connect_idx 2
+  # Eight eager sockets stall a 256MB shared-cpu boot before /health is useful.
+  @pool_size 2
+
+  def boot_counters do
+    case :persistent_term.get(@counter_key, nil) do
+      nil ->
+        ref = :counters.new(2, [:write_concurrency])
+        :persistent_term.put(@counter_key, ref)
+        :ok
+
+      _ref ->
+        :ok
+    end
+  end
 
   def child_spec(_opts) do
     %{
@@ -11,6 +28,7 @@ defmodule CarolinaCodesElixir.Db do
   end
 
   def start_link do
+    boot_counters()
     inc_connect()
 
     case call_hook(connect_fn(), []) do
@@ -44,16 +62,16 @@ defmodule CarolinaCodesElixir.Db do
     end
   end
 
-  def sql_count, do: :persistent_term.get({__MODULE__, :sql}, 0)
-  def connect_count, do: :persistent_term.get({__MODULE__, :connect}, 0)
+  def sql_count, do: :counters.get(counters(), @sql_idx)
+  def connect_count, do: :counters.get(counters(), @connect_idx)
 
   def reset_counts do
-    :persistent_term.put({__MODULE__, :sql}, 0)
-    :persistent_term.put({__MODULE__, :connect}, 0)
+    :counters.put(counters(), @sql_idx, 0)
+    :counters.put(counters(), @connect_idx, 0)
   end
 
-  def set_sql_count(n), do: :persistent_term.put({__MODULE__, :sql}, n)
-  def set_connect_count(n), do: :persistent_term.put({__MODULE__, :connect}, n)
+  def set_sql_count(n), do: :counters.put(counters(), @sql_idx, n)
+  def set_connect_count(n), do: :counters.put(counters(), @connect_idx, n)
 
   def set_query_fn(fun), do: Application.put_env(:carolina_codes_elixir, :query_fn, fun)
   def set_connect_fn(fun), do: Application.put_env(:carolina_codes_elixir, :connect_fn, fun)
@@ -78,7 +96,7 @@ defmodule CarolinaCodesElixir.Db do
       username: user,
       password: pass,
       database: db,
-      pool_size: 8,
+      pool_size: @pool_size,
       ssl: false,
       socket_options: socket_options(url)
     ]
@@ -110,13 +128,11 @@ defmodule CarolinaCodesElixir.Db do
     end)
   end
 
-  defp inc_sql do
-    :persistent_term.put({__MODULE__, :sql}, sql_count() + 1)
-  end
+  defp inc_sql, do: :counters.add(counters(), @sql_idx, 1)
 
-  defp inc_connect do
-    :persistent_term.put({__MODULE__, :connect}, connect_count() + 1)
-  end
+  defp inc_connect, do: :counters.add(counters(), @connect_idx, 1)
+
+  defp counters, do: :persistent_term.get(@counter_key)
 
   defp query_fn, do: Application.get_env(:carolina_codes_elixir, :query_fn)
   defp connect_fn, do: Application.get_env(:carolina_codes_elixir, :connect_fn)

@@ -22,4 +22,4 @@ mise run check
 mise run secrets   # gitleaks detect --source .
 ```
 
-Gitea Actions (`.gitea/workflows/precommit.yml`) runs those same checks as parallel jobs, not a single `mix precommit` step.
+Gitea Actions (`.gitea/workflows/precommit.yml`) prepares the Mix workspace once (`prep`: token-clone `GITHUB_SHA`, toolchain, `mix deps.get`, Mix compile), then each Mix check from the `precommit` alias restores that artifact and runs only its Mix command. Mix checks wait on `prep` (not on each other) and do not re-clone, `mix deps.get`, or install `build-essential`. `gitleaks detect --source . --verbose` is a separate job. This is not a single `mix precommit` CI step.
